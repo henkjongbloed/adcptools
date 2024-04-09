@@ -249,7 +249,7 @@ classdef Solution < handle & helpers.ArraySupport
     function DEC = decomposeSolution(obj)
         % Decompose cross-sectional solution data using Jongbloed et al
         % 2024b - thickness-weighed averaging
-        
+    end
 
 
 
