@@ -45,22 +45,142 @@ classdef Solution < handle & helpers.ArraySupport
             [varargout{:}] = obj.model.get_data(obj.pars);
         end
 
-        function validate(obj)
+        function gof = validate(obj)
             if ~isscalar(obj)
                 obj.run_method('validate');
                 return
             end
             gof = obj.get_residuals();
         end
-    
+
+        function res=evaluate(obj, sol_idx, X)
+            % Wrapper for model.get_data
+            % Used for interpolation or plotting
+            arguments
+                obj
+                sol_idx (1,1) double  = 1
+                X.T (:,1) double = 0
+                X.N (:,1) double = 0
+                X.Sig (:,1) double = 0
+            end
 
 
-    function plot_residuals(obj, var_idx)
-        nreg = size(obj.p, 2);
-        nn = numel(var_idx);
 
-        for fig_idx = 1:3
-            m = makefigure(20,3*numel(var_idx));
+            % find mesh cell input data belongs to
+            %             cmesh = obj.mesh;
+            cell_idx = obj.mesh.index(X.N, X.Sig);
+            
+            n_center = reshape(...
+                obj.mesh.n_middle(obj.mesh.col_to_cell), [], 1);
+            dS = zeros(size(cell_idx));
+            dN = X.N - n_center(cell_idx); % delta_n
+            dZ = zeros(size(cell_idx)); % delta_z - not used, dSig takes precedence
+            dSig = X.Sig - obj.mesh.sig_center(cell_idx); % delta_sig
+
+            dT = datetime(X.T, 'ConvertFrom', 'datenum');
+            M = obj.model.get_model(dT, dS, dN, dZ,dSig);
+
+            pars_cell = obj.pars(cell_idx, :, sol_idx);
+
+            %The following could be coded more elegantly but does not
+            %affect computation times significantly (probably
+            %matmult/pagemtimes/permute)
+            pidx = [0, cumsum(obj.model.npars)];
+            for dim = 1:obj.model.ncomponents
+                P(:,:,dim) = pars_cell(:,(pidx(dim)+1):pidx(dim+1))';
+            end
+
+
+            
+            
+            res = pagemtimes(M,P);
+            
+            disp(M)
+            res=M;
+        end
+
+        function plot_residuals(obj, var_idx)
+            nreg = size(obj.p, 2);
+            nn = numel(var_idx);
+
+            for fig_idx = 1:3
+                m = makefigure(20,3*numel(var_idx));
+                if nreg>1 % Compare different vectors
+                    t = tiledlayout(nn, nreg, TileSpacing = "tight", Padding = "tight", TileIndexing = "columnmajor");
+                else
+                    t = tiledlayout('flow', TileSpacing="tight", Padding="tight");
+                end
+
+                t.XLabel.String = 'y [m]';
+                t.YLabel.String = 'z [m]';
+                t.XLabel.Interpreter = 'latex';
+                t.YLabel.Interpreter = 'latex';
+                var_tit = {'M\vec{p} - \vec{b}', 'C_1\vec{p}',...
+                    'C_2\vec{p}', 'C_3\vec{p}', 'C_4\vec{p}', 'C_5\vec{p} - \vec{\zeta}'};
+                meas_name = {'m', 'var', 'mse'};
+                meas_tit = {'n_s^{-1}\Sigma', 'Var', 'MSE'};
+                for col = 1:nreg
+                    for row = 1:nn
+                        nexttile;
+                        obj.plot_residual(col, meas_name{fig_idx}, var_idx{row})
+
+                        lam = {'\mathbf{\lambda}_0', '\mathbf{\lambda}_1', '\mathbf{\lambda}_2'};
+                        if row == 1
+                            title(['$', meas_tit{fig_idx}, '(',  var_tit{var_idx{row}+1}, ')', ', \hspace{.1cm}  \lambda = ', lam{col}, '$'], 'interpreter', 'latex', 'FontSize', 12);
+                        else
+                            title(['$', meas_tit{fig_idx}, '(',  var_tit{var_idx{row}+1}, ')', '$'], 'interpreter', 'latex', 'FontSize', 12);
+                        end %['$', titles{row}, ', \hspace{.1cm}  \lambda = ', lam{col}, '$']
+                        %tit = strcat();
+                        %title(tit, 'interpreter', 'latex', 'FontSize', 12);
+                        c = colorbar();
+                        set(c,'TickLabelInterpreter','latex')
+                        colormap(gca, flipud(obj.vel_cmap))
+                        c.FontSize = 12;
+
+                        axis tight
+                        set(gca, 'XDir','reverse') % Very important
+
+                        set(gca, 'XTick',[])
+                        set(gca, 'YTick',[])
+
+                    end
+                end
+            end
+
+        end
+
+        function plot_solution(obj, names_selection, par_idx, varargin)
+            if ~isscalar(obj)
+                obj.run_method('plot_solution');
+                return
+            end
+            if nargin < 3
+                par_idx = 1:size(obj.p,2);
+                if nargin < 2
+                    names_selection = [obj.model.all_names];
+                end
+            end
+            inp = inputParser;
+            %inp.addOptional('var',[]);
+            inp.addParameter('v', 0, @(x) isscalar(x) && isfinite(x));
+            inp.addParameter('w', 0, @(x) isscalar(x) && isfinite(x));
+            expectedTransform = {'linear','symlog'};
+            inp.addParameter('ArrowScaling',[.1, .1]);
+            inp.addParameter('ArrowTransform','linear', @(x) any(validatestring(x,expectedTransform)));
+            inp.addParameter('ArrowParam', [.9, .9])
+            inp.parse(varargin{:})
+            v = inp.Results.v;
+            w = inp.Results.w;
+            ArrowTransform = inp.Results.ArrowTransform;
+            ArrowScaling = inp.Results.ArrowScaling;
+            ArrowParam = inp.Results.ArrowParam;
+            P = obj.p(:, par_idx);
+            nreg = size(P, 2);
+            nn = length(names_selection);
+            nc = obj.mesh.ncells;
+            np = sum(obj.model.npars); % Number of parameters in each cell
+            Np = size(P,1); %= nc*np;
+            m = makefigure(20, 3*nn);
             if nreg>1 % Compare different vectors
                 t = tiledlayout(nn, nreg, TileSpacing = "tight", Padding = "tight", TileIndexing = "columnmajor");
             else
@@ -71,27 +191,90 @@ classdef Solution < handle & helpers.ArraySupport
             t.YLabel.String = 'z [m]';
             t.XLabel.Interpreter = 'latex';
             t.YLabel.Interpreter = 'latex';
-            var_tit = {'M\vec{p} - \vec{b}', 'C_1\vec{p}',...
-                'C_2\vec{p}', 'C_3\vec{p}', 'C_4\vec{p}', 'C_5\vec{p} - \vec{\zeta}'};
-            meas_name = {'m', 'var', 'mse'};
-            meas_tit = {'n_s^{-1}\Sigma', 'Var', 'MSE'};
+
+            par_idx = obj.get_par_idx(names_selection);
+            titles = obj.modify_names(names_selection);
+
             for col = 1:nreg
                 for row = 1:nn
-                    nexttile;
-                    obj.plot_residual(col, meas_name{fig_idx}, var_idx{row})
+                    nexttile();
+                    amax = max(abs(P(par_idx(row):np:Np, 2)), [], 'omitnan') + 1e-5; % For paper, we assume nreg = 3
+                    if ~v && ~w
+                        var = [P(par_idx(row):np:Np, col), zeros(nc,2)];
+                        armax = [0, 0];
+                    elseif v && ~w
+                        var = [P(par_idx(row):np:Np, col), P(par_idx(row)+np/3:np:Np, col), zeros(nc,1)];
+                        armax = [max(abs(P(par_idx(row)+np/3:np:Np, 2)), [], 'omitnan') + 1e-5, 0];
+                    elseif w && ~v
+                        var = [P(par_idx(row):np:Np, col), zeros(nc,1), P(par_idx(row)+2*np/3:np:Np, col)];
+                        armax = [0, max(abs(P(par_idx(row)+2*np/3:np:Np, 2)), [], 'omitnan') + 1e-5];
+                    elseif v && w
+                        var = [P(par_idx(row):np:Np, col), P(par_idx(row)+np/3:np:Np, col), P(par_idx(row)+2*np/3:np:Np, col)];
+                        armax = [max(abs(P(par_idx(row)+np/3:np:Np, 2)), [], 'omitnan') + 1e-5, max(abs(P(par_idx(row)+2*np/3:np:Np, 2)), [], 'omitnan') + 1e-5];
+                    end
+                    var = obj.arrow_scale(var, ArrowScaling.*armax, ArrowTransform, ArrowParam);
+                    %plot(var(:,2:3))
+                    %ylim([-armax(1), armax(1)])
+                    hold on
+                    obj.mesh.plot('var', var, 'FixAspectRatio', false)
+                    if col == nreg
+                        if ~contains(titles{row}, 'phi')
+                            %amax = max(abs(var(:,1)), [], 'omitnan') + 1e-5;
+                            c = colorbar;
+                            set(c,'TickLabelInterpreter','latex')
+                        else
+                            c = colorbar;
+                            ylabel(c, 'deg','Rotation',270, 'interpreter', 'latex');
 
+                        end
+                    end
                     lam = {'\mathbf{\lambda}_0', '\mathbf{\lambda}_1', '\mathbf{\lambda}_2'};
+
+                    if ~contains(titles{row}, '\partial') % Velocities
+                        unit = '[m/s]';
+                    elseif contains(titles{row}, '\sigma') % Velocities
+                        unit = '[m/s]';
+                    else % derivatives of velocities in x,y,z directions: m/s/m = 1/s
+                        unit = '[1/s]';
+                    end
                     if row == 1
-                        title(['$', meas_tit{fig_idx}, '(',  var_tit{var_idx{row}+1}, ')', ', \hspace{.1cm}  \lambda = ', lam{col}, '$'], 'interpreter', 'latex', 'FontSize', 12);
+                        title(['$', titles{row}, ', \hspace{.1cm}  \lambda = ', lam{col}, '$'], 'interpreter', 'latex', 'FontSize', 12);
                     else
-                        title(['$', meas_tit{fig_idx}, '(',  var_tit{var_idx{row}+1}, ')', '$'], 'interpreter', 'latex', 'FontSize', 12);
-                    end %['$', titles{row}, ', \hspace{.1cm}  \lambda = ', lam{col}, '$']
-                    %tit = strcat();
-                    %title(tit, 'interpreter', 'latex', 'FontSize', 12);
-                    c = colorbar();
-                    set(c,'TickLabelInterpreter','latex')
-                    colormap(gca, flipud(obj.vel_cmap))
-                    c.FontSize = 12;
+                        title(['$', titles{row}, '$'], 'interpreter', 'latex', 'FontSize', 12);
+                    end
+
+                    if col == nreg
+                        pos = get(c,'Position');
+                        if row == 1
+                            pos1 = pos;
+                        end
+                        % disp(pos)
+                        c.Label.String = unit;
+                        c.Label.Interpreter = 'latex';
+                        %c.Label.Position(1) = pos1(1) + 3; % to change its position
+                        %c.Label.Position(2) = c.Label.Position(2) + .2; % to change its position
+                        c.Label.HorizontalAlignment = 'center'; % to change its position
+                        c.TickLabelInterpreter = 'latex';
+                        c.Label.Rotation = 270; % to rotate the text
+                        c.FontSize = 12;
+                    end
+
+                    % colormap
+                    if ~contains(titles{row}, 'phi')    % linear variable
+                        caxis([-amax, amax])
+                        %                     colormap(gca, obj.vel_cmap)
+                        %                         if col == nreg
+                        %                         if amax < 1e-2 % change colorbar ticklabels and ylabel to remove scientific notation
+                        %                             c.Ticks = 100*c.Ticks;
+                        %                             c.Label.String = [c.Label.String, "$\times 10^{-2}$"];
+                        %                         end
+                        %                         end
+                    else
+                        caxis([-180, 180])              % cyclic variable
+                        temp = get(gca, 'Children');
+                        temp(2).CData =  temp(2).CData*180/pi;
+                        %                     colormap(gca, obj.phi_cmap)
+                    end
 
                     axis tight
                     set(gca, 'XDir','reverse') % Very important
@@ -101,161 +284,17 @@ classdef Solution < handle & helpers.ArraySupport
 
                 end
             end
+            % Tight = get(gca, 'TightInset');  %Gives you the bording spacing between plot box and any axis labels
+            % %[Left Bottom Right Top] spacing
+            % NewPos = [Tight(1) Tight(2) 1-Tight(1)-Tight(3) 1-Tight(2)-Tight(4)]; %New plot position [X Y W H]
+            % set(gca, 'Position', NewPos);
         end
 
+        function DEC = decomposeSolution(obj)
+            % Decompose cross-sectional solution data using Jongbloed et al
+            % 2024b - thickness-weighed averaging
+        end
     end
-
-    function plot_solution(obj, names_selection, par_idx, varargin)
-        if ~isscalar(obj)
-            obj.run_method('plot_solution');
-            return
-        end
-        if nargin < 3
-            par_idx = 1:size(obj.p,2);
-            if nargin < 2
-                names_selection = [obj.model.all_names];
-            end
-        end
-        inp = inputParser;
-        %inp.addOptional('var',[]);
-        inp.addParameter('v', 0, @(x) isscalar(x) && isfinite(x));
-        inp.addParameter('w', 0, @(x) isscalar(x) && isfinite(x));
-        expectedTransform = {'linear','symlog'};
-        inp.addParameter('ArrowScaling',[.1, .1]);
-        inp.addParameter('ArrowTransform','linear', @(x) any(validatestring(x,expectedTransform)));
-        inp.addParameter('ArrowParam', [.9, .9])
-        inp.parse(varargin{:})
-        v = inp.Results.v;
-        w = inp.Results.w;
-        ArrowTransform = inp.Results.ArrowTransform;
-        ArrowScaling = inp.Results.ArrowScaling;
-        ArrowParam = inp.Results.ArrowParam;
-        P = obj.p(:, par_idx);
-        nreg = size(P, 2);
-        nn = length(names_selection);
-        nc = obj.mesh.ncells;
-        np = sum(obj.model.npars); % Number of parameters in each cell
-        Np = size(P,1); %= nc*np;
-        m = makefigure(20, 3*nn);
-        if nreg>1 % Compare different vectors
-            t = tiledlayout(nn, nreg, TileSpacing = "tight", Padding = "tight", TileIndexing = "columnmajor");
-        else
-            t = tiledlayout('flow', TileSpacing="tight", Padding="tight");
-        end
-
-        t.XLabel.String = 'y [m]';
-        t.YLabel.String = 'z [m]';
-        t.XLabel.Interpreter = 'latex';
-        t.YLabel.Interpreter = 'latex';
-
-        par_idx = obj.get_par_idx(names_selection);
-        titles = obj.modify_names(names_selection);
-
-        for col = 1:nreg
-            for row = 1:nn
-                nexttile();
-                amax = max(abs(P(par_idx(row):np:Np, 2)), [], 'omitnan') + 1e-5; % For paper, we assume nreg = 3
-                if ~v && ~w
-                    var = [P(par_idx(row):np:Np, col), zeros(nc,2)];
-                    armax = [0, 0];
-                elseif v && ~w
-                    var = [P(par_idx(row):np:Np, col), P(par_idx(row)+np/3:np:Np, col), zeros(nc,1)];
-                    armax = [max(abs(P(par_idx(row)+np/3:np:Np, 2)), [], 'omitnan') + 1e-5, 0];
-                elseif w && ~v
-                    var = [P(par_idx(row):np:Np, col), zeros(nc,1), P(par_idx(row)+2*np/3:np:Np, col)];
-                    armax = [0, max(abs(P(par_idx(row)+2*np/3:np:Np, 2)), [], 'omitnan') + 1e-5];
-                elseif v && w
-                    var = [P(par_idx(row):np:Np, col), P(par_idx(row)+np/3:np:Np, col), P(par_idx(row)+2*np/3:np:Np, col)];
-                    armax = [max(abs(P(par_idx(row)+np/3:np:Np, 2)), [], 'omitnan') + 1e-5, max(abs(P(par_idx(row)+2*np/3:np:Np, 2)), [], 'omitnan') + 1e-5];
-                end
-                var = obj.arrow_scale(var, ArrowScaling.*armax, ArrowTransform, ArrowParam);
-                %plot(var(:,2:3))
-                %ylim([-armax(1), armax(1)])
-                hold on
-                obj.mesh.plot('var', var, 'FixAspectRatio', false)
-                if col == nreg
-                    if ~contains(titles{row}, 'phi')
-                        %amax = max(abs(var(:,1)), [], 'omitnan') + 1e-5;
-                        c = colorbar;
-                        set(c,'TickLabelInterpreter','latex')
-                    else
-                        c = colorbar;
-                        ylabel(c, 'deg','Rotation',270, 'interpreter', 'latex');
-
-                    end
-                end
-                lam = {'\mathbf{\lambda}_0', '\mathbf{\lambda}_1', '\mathbf{\lambda}_2'};
-
-                if ~contains(titles{row}, '\partial') % Velocities
-                    unit = '[m/s]';
-                elseif contains(titles{row}, '\sigma') % Velocities
-                    unit = '[m/s]';
-                else % derivatives of velocities in x,y,z directions: m/s/m = 1/s
-                    unit = '[1/s]';
-                end
-                if row == 1
-                    title(['$', titles{row}, ', \hspace{.1cm}  \lambda = ', lam{col}, '$'], 'interpreter', 'latex', 'FontSize', 12);
-                else
-                    title(['$', titles{row}, '$'], 'interpreter', 'latex', 'FontSize', 12);
-                end
-
-                if col == nreg
-                    pos = get(c,'Position');
-                    if row == 1
-                        pos1 = pos;
-                    end
-                    % disp(pos)
-                    c.Label.String = unit;
-                    c.Label.Interpreter = 'latex';
-                    %c.Label.Position(1) = pos1(1) + 3; % to change its position
-                    %c.Label.Position(2) = c.Label.Position(2) + .2; % to change its position
-                    c.Label.HorizontalAlignment = 'center'; % to change its position
-                    c.TickLabelInterpreter = 'latex';
-                    c.Label.Rotation = 270; % to rotate the text
-                    c.FontSize = 12;
-                end
-
-                % colormap
-                if ~contains(titles{row}, 'phi')    % linear variable
-                    caxis([-amax, amax])
-%                     colormap(gca, obj.vel_cmap)
-                    %                         if col == nreg
-                    %                         if amax < 1e-2 % change colorbar ticklabels and ylabel to remove scientific notation
-                    %                             c.Ticks = 100*c.Ticks;
-                    %                             c.Label.String = [c.Label.String, "$\times 10^{-2}$"];
-                    %                         end
-                    %                         end
-                else
-                    caxis([-180, 180])              % cyclic variable
-                    temp = get(gca, 'Children');
-                    temp(2).CData =  temp(2).CData*180/pi;
-%                     colormap(gca, obj.phi_cmap)
-                end
-
-                axis tight
-                set(gca, 'XDir','reverse') % Very important
-
-                set(gca, 'XTick',[])
-                set(gca, 'YTick',[])
-
-            end
-        end
-        % Tight = get(gca, 'TightInset');  %Gives you the bording spacing between plot box and any axis labels
-        % %[Left Bottom Right Top] spacing
-        % NewPos = [Tight(1) Tight(2) 1-Tight(1)-Tight(3) 1-Tight(2)-Tight(4)]; %New plot position [X Y W H]
-        % set(gca, 'Position', NewPos);
-    end
-
-    function DEC = decomposeSolution(obj)
-        % Decompose cross-sectional solution data using Jongbloed et al
-        % 2024b - thickness-weighed averaging
-    end
-
-
-
-
-
-end
 
     methods(Access=protected)
         function b_pred = get_b_pred(obj)

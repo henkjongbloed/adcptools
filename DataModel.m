@@ -85,8 +85,8 @@ classdef DataModel <...
                 parameters (:,:,:) double
                 options.covariance (:,:,:,:) double =...
                     zeros(size(parameters,[1, 2, 2, 3]));
-                options.delta_t (:,1) duration = ...
-                    seconds(zeros(size(parameters,1),1));
+                options.delta_t (:,1) datetime = ...
+                    datetime(zeros(size(parameters,1),1), 'ConvertFrom', 'datenum');
                 options.delta_s (:,1) double = zeros(size(parameters,1),1);
                 options.delta_n (:,1) double = zeros(size(parameters,1),1);
                 options.delta_z (:,1) double = zeros(size(parameters,1),1);
@@ -129,6 +129,73 @@ classdef DataModel <...
                 cov_dat = permute(cov_dat,[1 3 4 2]);
             end
         end
+
+
+        function [dat, cov_dat] = get_data2(obj, parameters, options)
+            %   dat = get_data(obj, pars) computes data based on model
+            %   parameters.
+            %
+            %   [dat, cov_dat] = get_data(obj, pars, cov_pars) also compute
+            %   covariance matrix of data based on covariance of model
+            %   parameters.
+            %
+            %   [dat, cov_dat] = get_velocity(obj, pars, cov_pars, d_time, d_s,
+            %       d_n, d_z, d_sigma) optionally specify the coordinate
+            %       offsets at which data will be computed. These default
+            %       to zeros if not given. They are all column vectors with
+            %       same number of rows as the rows in pars.
+            %
+            %   see also: DataModel, Solver
+            arguments
+                obj
+                parameters (:,:,:) double
+                options.covariance (:,:,:,:) double =...
+                    zeros(size(parameters,[1, 2, 2, 3]));
+                options.delta_t (:,1) datetime = ...
+                    datetime(zeros(size(parameters,1),1), 'ConvertFrom', 'datenum');
+                options.delta_s (:,1) double = zeros(size(parameters,1),1);
+                options.delta_n (:,1) double = zeros(size(parameters,1),1);
+                options.delta_z (:,1) double = zeros(size(parameters,1),1);
+                options.delta_sig (:,1) double =...
+                    zeros(size(parameters,1),1);
+                
+            end
+            
+            M = obj.get_model(...
+                options.delta_t,...
+                options.delta_s,...
+                options.delta_n,...
+                options.delta_z,...
+                options.delta_sig...
+                );
+
+            % reconstruct model matrix with kron product
+            np = obj.npars;
+            nin = size(parameters,1);
+            nc = obj.ncomponents;
+            Mnew = zeros(nin,nc,sum(np));
+            cum_pars = cumsum([0 np]);
+            for c_comp = 1:obj.ncomponents
+                Mnew(:,c_comp,cum_pars(c_comp)+1:cum_pars(c_comp+1))=...
+                    M(:,1:np(c_comp),c_comp);
+            end
+            M=Mnew;
+
+            % apply model to obtain vel
+            pars = permute(parameters,[1 3 2 4]);
+            M = permute(M,[1 4 2 3]);
+            dat = helpers.matmult(M,pars);
+            dat = permute(dat,[1 3 2]);
+
+            % apply model to obtain covariance matrix
+            if nargout > 1
+                cov_pars = permute(options.covariance, [1 4 2 3]);
+                cov_dat = helpers.matmult(cov_pars, permute(M,[1,2,4,3]));
+                cov_dat = helpers.matmult(M, cov_dat);
+                cov_dat = permute(cov_dat,[1 3 4 2]);
+            end
+        end
+
 
         function val=get.npars(obj)
             val=obj.get_npars();
