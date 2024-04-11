@@ -53,8 +53,15 @@ classdef Solution < handle & helpers.ArraySupport
             gof = obj.get_residuals();
         end
 
-        function res=evaluate(obj, sol_idx, X)
-            % Wrapper for model.get_data
+        function res = evaluate(obj, sol_idx, X)
+            % Wrapper for model.get_data, with arbitrary number of query
+            % points
+            % input: sol_idx: index of the solution to be evaluated
+            % X.T : Nq x 1 vector of time values
+            % X.N : Nq x 1 vector of lateral coordinate values
+            % X.Sig : Nq x 1 vector of sigma values
+
+            % evaluate(obj, sol_idx, T = ..., N = ..., Sig = ...)
             % Used for interpolation or plotting
             arguments
                 obj
@@ -63,8 +70,10 @@ classdef Solution < handle & helpers.ArraySupport
                 X.N (:,1) double = 0
                 X.Sig (:,1) double = 0
             end
-
-
+            % if statements: numel XT, XN, XSig must be equal
+            % npars must have equal elements
+            nx = numel(X.T);
+            np = obj.model.npars(1);
 
             % find mesh cell input data belongs to
             %             cmesh = obj.mesh;
@@ -78,7 +87,7 @@ classdef Solution < handle & helpers.ArraySupport
             dSig = X.Sig - obj.mesh.sig_center(cell_idx); % delta_sig
 
             dT = datetime(X.T, 'ConvertFrom', 'datenum');
-            M = obj.model.get_model(dT, dS, dN, dZ,dSig);
+            M0 = obj.model.get_model(dT, dS, dN, dZ,dSig);
 
             pars_cell = obj.pars(cell_idx, :, sol_idx);
 
@@ -86,17 +95,17 @@ classdef Solution < handle & helpers.ArraySupport
             %affect computation times significantly (probably
             %matmult/pagemtimes/permute)
             pidx = [0, cumsum(obj.model.npars)];
+            
+            ip = repmat(1:nx, [np, 1]); ip = ip(:);
+            jp = 1:nx*np;
+            res = nan([nx, obj.model.ncomponents]);
+            v = cell([3,1]); P = cell([3,1]); Mp = cell([3,1]); 
             for dim = 1:obj.model.ncomponents
-                P(:,:,dim) = pars_cell(:,(pidx(dim)+1):pidx(dim+1))';
+                v{dim} = M0(:,:,dim)'; v{dim} = v{dim}(:);
+                P{dim} = pars_cell(:,(pidx(dim)+1):pidx(dim+1))'; P{dim} = P{dim}(:);
+                Mp{dim} = sparse(ip,jp,v{dim});
+                res(:,dim) = Mp{dim}*P{dim}; % Compute u = Mx*px;
             end
-
-
-            
-            
-            res = pagemtimes(M,P);
-            
-            disp(M)
-            res=M;
         end
 
         function plot_residuals(obj, var_idx)
