@@ -69,16 +69,47 @@ classdef Solution < handle & helpers.ArraySupport
                 X.T (:,1) double = 0
                 X.N (:,1) double = 0
                 X.Sig (:,1) double = 0
+                X.extrapolate (1,1) logical = false
             end
             % if statements: numel XT, XN, XSig must be equal
             % npars must have equal elements
             nx = numel(X.T);
             np = obj.model.npars(1);
 
-            % find mesh cell input data belongs to
-            %             cmesh = obj.mesh;
+            % find mesh cell query points belong to
+            
             cell_idx = obj.mesh.index(X.N, X.Sig);
             
+            % Query points too close to bottom or surface.
+            if sum(isnan(cell_idx)) == 0
+                error("Query points all inside mesh domain.")
+            else
+                if X.extrapolate
+                    extr = isnan(cell_idx);
+                    bot = X.Sig < .5;
+                    sur = X.Sig > .5;
+                    extrb = extr & bot;
+                    extrs = extr & sur;
+
+                    % Following are of length ncol
+                    sur_idx = intersect(find((obj.mesh.domains >= 2)), find((obj.mesh.domains <= 4)));
+                    bot_idx = find((obj.mesh.domains >= 6));
+                    
+                    % Following could perhaps be sped up
+                    center_idx = obj.mesh.index(X.N, .5*ones(size(X.N)));
+                    cols = obj.mesh.col_to_cell(center_idx); % Columns
+                    
+                    cell_idx(extrb) = bot_idx(cols(extrb));
+                    cell_idx(extrs) = sur_idx(cols(extrs));
+
+                else
+                    error("Query points outside mesh domain. " + ...
+                        "Enter extrapolate = true to linearly " + ...
+                        "extrapolate the solution.")
+                end
+            end
+            
+
             n_center = reshape(...
                 obj.mesh.n_middle(obj.mesh.col_to_cell), [], 1);
             dS = zeros(size(cell_idx));

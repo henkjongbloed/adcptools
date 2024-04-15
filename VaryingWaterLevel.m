@@ -67,6 +67,20 @@ classdef VaryingWaterLevel < WaterLevel
             obj.parameters = (M'*M)\M'*obj.level';
         end
 
+        function val = get_water_level_model(obj, time)
+            % Gets water level based on model parameters -> extrapolate in
+            % time.
+
+            % val is relative to a reference datum
+            M = obj.model.get_model(time);
+            val = M*obj.parameters;
+        end
+
+        function depth = get_depth_model(obj, z, time)
+            % Fill in z = zb to get the water column depth.
+            depth=obj.get_water_level_model(time)-z;
+        end
+
         function hp=plot(obj,varargin)
             % plots the water level time series
             %

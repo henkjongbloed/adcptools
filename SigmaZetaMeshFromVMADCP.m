@@ -245,16 +245,12 @@ classdef SigmaZetaMeshFromVMADCP < SigmaZetaMeshGenerator & helpers.ArraySupport
             n(outside_as)=[]; % remove n-points outside alpha shape
             nmin = min(n, [], 'all','omitnan');  % compute minimum n coordinate of depth cells
             nmax = max(n, [], 'all','omitnan');  % compute maximum n coordinate of depth cells
-            
-      
-           % deltan, deltaz = 
 
             nvec = obj.get_nvec(dres, nmin, nmax);  % compute n position of cell edges
             
-            
             % interpolate bathymetry to n positions
             [xvec, yvec] = obj.xs.sn2xy(nvec*0, nvec); % compute xy positions of cell edges
-            zvec = obj.bathymetry.get_bed_elev(xvec, yvec);                       % interpolate bathymetry to cell edges
+            zvec = obj.bathymetry.get_bed_elev(xvec, yvec);  % interpolate bathymetry to cell edges
             mesh.nb_all=nvec;
             mesh.zb_all=zvec;
             
