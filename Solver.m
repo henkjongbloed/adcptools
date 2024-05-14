@@ -65,7 +65,7 @@ classdef Solver < helpers.ArraySupport
         %   Velocity model to use when solving for velocity
         %
         %   see also: Solver, DataModel
-        data_model (1,1) DataModel = VelocityModel;
+        model (1,1) DataModel = VelocityModel;
 
         % Solver/regularization
         %
@@ -126,11 +126,14 @@ classdef Solver < helpers.ArraySupport
             % find mesh cell input data belongs to
             cmesh = obj.mesh;
             cell_idx = cmesh.index(n_pos(fgood), sig_pos(fgood));
-
+            if obj.opts.extrapolate_vert
+                cell_idx = cmesh.index_extrapolate(cell_idx, n_pos, sig_pos);
+            end
             % combine filter selecting finite input with filter
             % selecting data that belongs has a correspoding mesh cell
             % and filter input data accordingly
             fgood_idx = isfinite(cell_idx);
+            disp("Percentage of data kept = " + num2str(mean(fgood_idx)))
             cell_idx = cell_idx(fgood_idx);
             fgood = fgood(fgood_idx);
             dat = dat(fgood);
@@ -150,15 +153,15 @@ classdef Solver < helpers.ArraySupport
             d_sig = sig_pos - cmesh.sig_center(cell_idx); % delta_sig
 
             % get model matrices
-            M = obj.data_model.get_model(...
+            M = obj.model.get_model(...
                 time, d_s, d_n, d_z, d_sig);
 
             % disp('Assembled model matrices')
             % From here, different solvers are used depending on the
             % SolverOptions opts
 
-            npars=obj.data_model.npars;
-            ncomp = obj.data_model.ncomponents;
+            npars=obj.model.npars;
+            ncomp = obj.model.ncomponents;
             Mb0 = nan(size(M,1), sum(npars));
             par_start = 1;
             for ccomp = 1:ncomp
@@ -166,18 +169,22 @@ classdef Solver < helpers.ArraySupport
                     M(:,1:npars(ccomp),ccomp).*xform(:,ccomp);
                 par_start = par_start + npars(ccomp);
             end
-            [M, b, ns] = obj.reorder_model_matrix(Mb0, dat, cell_idx);
-            
-            
-
+            [M, b, cell_idx_] = obj.reorder_model_matrix(Mb0, dat, cell_idx);
+            %disp("Scaling system of data eqs") % In practice, the 1-norm
+            %of M is approx 1.
+            %[M,b] = helpers.scale_unity(M, b);
+    	    %Sig = 0.006^2;
+            %M = M/sqrt(Sig);
+            %b = b/sqrt(Sig);
             S = Solution;
-            S.mesh = obj.mesh;
-            S.model = obj.data_model;
-            S.regularization = obj.regularization;
+            %S.mesh = obj.mesh;
+            %S.model = obj.data_model;
+            %S.regularization = obj.regularization;
             S.M = M;
             
             S.b = b;
-            S.ns = ns;
+            %S.ns = ns;
+            S.cell_idx = cell_idx_;
             % Pass solution data to Solution class
             p = obj.solve(M, b);
             S.solver = obj;
@@ -227,7 +234,7 @@ classdef Solver < helpers.ArraySupport
             else
                 pars = varargin{1};
             end
-            [varargout{:}] = obj.data_model.get_data(pars);
+            [varargout{:}] = obj.model.get_data(pars);
         end
 
     end
@@ -308,7 +315,7 @@ classdef Solver < helpers.ArraySupport
         end
                 
 
-        function [M, b, ns] = reorder_model_matrix(obj, Mb0, dat, cell_idx)
+        function [M, b, cell_idx] = reorder_model_matrix(obj, Mb0, dat, cell_idx)
             ncells = obj.mesh.ncells;
             npars = size(Mb0,2);
             nbvels = size(Mb0,1);
@@ -323,7 +330,6 @@ classdef Solver < helpers.ArraySupport
             row_idx = repmat((1 : nbvels)', 1, npars);
             M = sparse(row_idx(:), col_idx(:), Mb0(:),...
                 nbvels, npars * ncells);
-            ns = accumarray(cell_idx,ones(size(cell_idx)),[ncells, 1]);
         end
     end
 

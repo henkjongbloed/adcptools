@@ -69,6 +69,9 @@ classdef Regularization <...
         weight (1,:) double {mustBeNonempty,...
             mustBeFinite,...
             mustBeNonnegative} = 1
+        
+        options (1,1) SolverOptions = SolverOptions();
+
     end
     properties(SetAccess = protected)
         % Regularization/C
@@ -230,7 +233,8 @@ classdef Regularization <...
                     % if assembly fails
                     name = class(obj);
                     try
-                        obj.assemble_matrix_private(); 
+                        obj.assemble_matrix_private();
+                        %obj.scale_unity();
                         obj.gramian_matrix();
                         disp(strcat("Assembled regularization matrix ", name(16:end)))
                     catch err
@@ -247,8 +251,11 @@ classdef Regularization <...
         end
     end
     methods(Access = protected)
+        function scale_unity(obj)
+            [obj.C, obj.rhs] = helpers.scale_unity(obj.C, obj.rhs);
+        end
         function gramian_matrix(obj)
-            obj.Cg = obj.C'*obj.C;
+            obj.Cg = helpers.gramian_matrix(obj.C);
         end
         function D0 = get_subtidal_depth(obj)
             if isprop(obj.bathy.water_level, 'model') % If wl has a tidal model

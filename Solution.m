@@ -11,38 +11,52 @@ classdef Solution < handle & helpers.ArraySupport
 
         p (:,:) double % model parameters (b = Mp)
 
-        mesh (1,1) Mesh = SigmaZetaMesh
+        cell_idx (:,1) double
 
-        regularization (1,:) regularization.Regularization
-
-        model (1,1) DataModel = TaylorScalarModel
+%         mesh (1,1) Mesh = SigmaZetaMesh
+% 
+%         regularization (1,:) regularization.Regularization
+% 
+%         model (1,1) DataModel = TaylorScalarModel
 
         solver (1,1)
 
         opts (1,1) SolverOptions
 
-        ns (:,:) double
+       % ns (:,:) double
 
         GOF % Goodness of fit results
 
     end
+
+        %  Solver properties:
+    %   adcp - VMADCP object with the adcp data
+    %   mesh - Mesh object defining a mesh
+    %   bathy - Defines the bathymetry
+    %   xs - Defines the cross-section
+    %   ensemble_filter - defines repeat transects to be processed
+    %   data_model - defines the velocity model to fit
+
+    properties
+        decomp (1,1) Decomposition
+    end
     properties(Dependent)
-        pars
+        pars %p arranged in matrix of size Nc x np.
+        ns   %number of measurements per cell.
     end
     methods
         function obj = Solution(varargin)
             obj = obj@helpers.ArraySupport(varargin{:})
         end
         function pars = get.pars(obj)
-            [np, nsols] = size(obj.p);
-            ncells = obj.mesh.ncells;
-            npars = np/ncells;
-            pars = reshape(obj.p, npars, ncells, nsols);
-            pars = permute(pars, [2 1 3]);
+            pars = obj.p2pars(obj.p);
+        end
+        function ns = get.ns(obj)
+            ns = accumarray(obj.cell_idx, ones(size(obj.cell_idx)),[obj.solver.mesh.ncells, 1]);
         end
         function varargout = get_data(obj)
             varargout = cell(1,nargout);
-            [varargout{:}] = obj.model.get_data(obj.pars);
+            [varargout{:}] = obj.solver.model.get_data(obj.pars);
         end
 
         function gof = validate(obj)
@@ -67,6 +81,7 @@ classdef Solution < handle & helpers.ArraySupport
                 obj
                 sol_idx (1,1) double  = 1
                 X.T (:,1) double = 0
+                X.dX (1,1) double = 0 % scalar used to investigate along-channel gradients.
                 X.N (:,1) double = 0
                 X.Sig (:,1) double = 0
                 X.extrapolate (1,1) logical = false
@@ -74,69 +89,62 @@ classdef Solution < handle & helpers.ArraySupport
             % if statements: numel XT, XN, XSig must be equal
             % npars must have equal elements
             nx = numel(X.T);
-            np = obj.model.npars(1);
+            np = obj.solver.model.npars(1);
 
             % find mesh cell query points belong to
-            
-            cell_idx = obj.mesh.index(X.N, X.Sig);
-            
+            ev_cidx = obj.solver.mesh.index(X.N, X.Sig);
+
             % Query points too close to bottom or surface.
-            if sum(isnan(cell_idx)) == 0
-                error("Query points all inside mesh domain.")
+
+            if X.extrapolate
+                ev_cidx = obj.solver.mesh.index_extrapolate(ev_cidx, X.N, X.Sig);
             else
-                if X.extrapolate
-                    extr = isnan(cell_idx);
-                    bot = X.Sig < .5;
-                    sur = X.Sig > .5;
-                    extrb = extr & bot;
-                    extrs = extr & sur;
-
-                    % Following are of length ncol
-                    sur_idx = intersect(find((obj.mesh.domains >= 2)), find((obj.mesh.domains <= 4)));
-                    bot_idx = find((obj.mesh.domains >= 6));
-                    
-                    % Following could perhaps be sped up
-                    center_idx = obj.mesh.index(X.N, .5*ones(size(X.N)));
-                    cols = obj.mesh.col_to_cell(center_idx); % Columns
-                    
-                    cell_idx(extrb) = bot_idx(cols(extrb));
-                    cell_idx(extrs) = sur_idx(cols(extrs));
-
-                else
-                    error("Query points outside mesh domain. " + ...
-                        "Enter extrapolate = true to linearly " + ...
-                        "extrapolate the solution.")
-                end
+                error("Query points outside mesh domain. " + ...
+                    "Enter extrapolate = true to linearly " + ...
+                    "extrapolate the solution.")
             end
-            
+
+
 
             n_center = reshape(...
-                obj.mesh.n_middle(obj.mesh.col_to_cell), [], 1);
-            dS = zeros(size(cell_idx));
-            dN = X.N - n_center(cell_idx); % delta_n
-            dZ = zeros(size(cell_idx)); % delta_z - not used, dSig takes precedence
-            dSig = X.Sig - obj.mesh.sig_center(cell_idx); % delta_sig
+                obj.solver.mesh.n_middle(obj.solver.mesh.col_to_cell), [], 1);
+            dS = X.dX*ones(size(ev_cidx));
+            dN = X.N - n_center(ev_cidx); % delta_n
+            dZ = zeros(size(ev_cidx)); % delta_z - not used, dSig takes precedence
+            dSig = X.Sig - obj.solver.mesh.sig_center(ev_cidx); % delta_sig
 
             dT = datetime(X.T, 'ConvertFrom', 'datenum');
-            M0 = obj.model.get_model(dT, dS, dN, dZ,dSig);
+            M0 = obj.solver.model.get_model(dT, dS, dN, dZ,dSig);
 
-            pars_cell = obj.pars(cell_idx, :, sol_idx);
+            pars_cell = obj.pars(ev_cidx, :, sol_idx);
 
             %The following could be coded more elegantly but does not
             %affect computation times significantly (probably
             %matmult/pagemtimes/permute)
-            pidx = [0, cumsum(obj.model.npars)];
+            pidx = [0, cumsum(obj.solver.model.npars)];
             
             ip = repmat(1:nx, [np, 1]); ip = ip(:);
             jp = 1:nx*np;
-            res = nan([nx, obj.model.ncomponents]);
+            res = nan([nx, obj.solver.model.ncomponents]);
             v = cell([3,1]); P = cell([3,1]); Mp = cell([3,1]); 
-            for dim = 1:obj.model.ncomponents
+            for dim = 1:obj.solver.model.ncomponents
                 v{dim} = M0(:,:,dim)'; v{dim} = v{dim}(:);
                 P{dim} = pars_cell(:,(pidx(dim)+1):pidx(dim+1))'; P{dim} = P{dim}(:);
                 Mp{dim} = sparse(ip,jp,v{dim});
                 res(:,dim) = Mp{dim}*P{dim}; % Compute u = Mx*px;
             end
+        end
+
+        function [H, Wl, Zb] = get_H(obj)
+            [xvec, yvec] = obj.solver.mesh.xs.sn2xy(zeros(size(obj.decomp.X.y)), obj.decomp.X.y); % convert to x,y
+            zvec = obj.bathy.get_bed_elev(xvec, yvec);  % get (time-indep) bathy
+
+            wl = obj.solver.adcp.water_level_object.get_water_level_model(datetime(obj.decomp.X.t, 'ConvertFrom', 'datenum'));
+
+
+            [Wl, Zb] = ndgrid(wl, zvec);
+
+            H = Wl - Zb;
         end
 
         function plot_residuals(obj, var_idx)
@@ -189,36 +197,161 @@ classdef Solution < handle & helpers.ArraySupport
 
         end
 
-        function plot_solution(obj, names_selection, par_idx, varargin)
+        function plot_solution(obj, plot_names, opts)
+            % Wrapper for mesh.plot()
+            % Does not support quiver plots
+            arguments
+                obj
+                plot_names (1,:) cell = obj.solver.model.all_names
+                opts.sol_idx (1,:) double  = 1:size(obj.p,2)
+                opts.representation = "ab"
+            end
+
             if ~isscalar(obj)
                 obj.run_method('plot_solution');
                 return
             end
-            if nargin < 3
-                par_idx = 1:size(obj.p,2);
-                if nargin < 2
-                    names_selection = [obj.model.all_names];
+
+            nn = length(plot_names);
+            np = sum(obj.solver.model.npars); % Number of parameters in each cell
+            m = makefigure(18, 3*nn);
+            
+            if numel(opts.sol_idx)>1 % Compare different vectors
+                t = tiledlayout(m, nn, numel(opts.sol_idx), TileSpacing = "tight", Padding = "tight", TileIndexing = "columnmajor");
+            else
+                t = tiledlayout(m, 'flow', TileSpacing="tight", Padding="tight");
+            end
+
+            t.XLabel.String = 'y';
+            t.YLabel.String = 'z';
+            t.XLabel.Interpreter = 'latex';
+            t.YLabel.Interpreter = 'latex';
+
+            par_idx = obj.get_par_idx(plot_names);
+            if strcmp(opts.representation, "Aphi")
+                %pa = obj.p2pars();
+                [tid_pars, tid_names] = ab2Aphi(obj.pars, obj.solver.model.all_names);
+                P = obj.pars2p(tid_pars);
+                P = P(:, opts.sol_idx);
+                plot_names = tid_names(par_idx);
+            else
+                P = obj.p(:, opts.sol_idx);
+            end
+
+            titles = obj.modify_names(plot_names);
+            
+            for col = 1:numel(opts.sol_idx)
+                for row = 1:nn
+                    ax = nexttile(t);
+                    amax = max(abs(P(par_idx(row):np:end, numel(opts.sol_idx)-1)), [], 'omitnan') + 1e-5; % For paper, we assume nreg = 3
+                    var = P(par_idx(row):np:end, col);
+                    hold on
+                    [hbed, hwater, hmesh] = obj.solver.mesh.plot(ax,'var', var, 'FixAspectRatio', false);
+                    hmesh.LineStyle = 'none';
+                    
+                    % Colormap
+                    % Default: velmap
+                    colormap(ax, helpers.cmaps("velmap"))
+                    clim([-amax, amax])
+                    if contains(titles{row}, 'A')    % linear variable
+                        clim([-amax, amax])
+                        colormap(ax, helpers.cmaps("Amap"))
+                    elseif contains(titles{row}, 'phi')
+                        clim([-pi, pi])              % cyclic variable
+                        colormap(ax, helpers.cmaps("phimap"))
+                    end
+                    
+                    % Titles
+                    lam = {'\mathbf{\lambda}_N', '\mathbf{\lambda}_L', '\mathbf{\lambda}_H'};
+                    if row == 1
+                        title(['$', titles{row}, ', \hspace{.1cm}  \lambda = ', lam{col}, '$'], 'interpreter', 'latex', 'FontSize', 12);
+                    else
+                        title(['$', titles{row}, '$'], 'interpreter', 'latex', 'FontSize', 12);
+                    end
+                    
+                    % Colorbar
+                    if col == numel(opts.sol_idx)
+                        c = colorbar;
+                        c.TickLabelInterpreter = 'latex';
+                        c.FontSize = 10;
+                        if false
+                            if ~contains(titles{row}, '\partial') % Velocities
+                                unit = '[m/s]';
+                            elseif contains(titles{row}, '\sigma') % Velocities
+                                unit = '[m/s]';
+                            else % derivatives of velocities in x,y,z directions: m/s/m = 1/s
+                                unit = '[1/s]';
+                            end
+
+
+
+                            pos = get(c,'Position');
+                            if row == 1
+                                pos1 = pos;
+                            end
+                            % disp(pos)
+                            c.Label.String = unit;
+                            c.Label.Interpreter = 'latex';
+                            %c.Label.Position(1) = pos1(1) + 3; % to change its position
+                            %c.Label.Position(2) = c.Label.Position(2) + .3; % to change its position
+                            c.Label.VerticalAlignment = 'middle'; % to change its position
+                            c.Label.HorizontalAlignment = 'right';
+                            
+                            c.Label.Rotation = 270; % to rotate the text
+                            
+                        end
+                    end
+                    axis tight
+                    set(gca, 'XDir','reverse') % Very important
+
+                    set(gca, 'XTick',[])
+                    set(gca, 'YTick',[])
+
                 end
             end
-            inp = inputParser;
-            %inp.addOptional('var',[]);
-            inp.addParameter('v', 0, @(x) isscalar(x) && isfinite(x));
-            inp.addParameter('w', 0, @(x) isscalar(x) && isfinite(x));
-            expectedTransform = {'linear','symlog'};
-            inp.addParameter('ArrowScaling',[.1, .1]);
-            inp.addParameter('ArrowTransform','linear', @(x) any(validatestring(x,expectedTransform)));
-            inp.addParameter('ArrowParam', [.9, .9])
-            inp.parse(varargin{:})
-            v = inp.Results.v;
-            w = inp.Results.w;
-            ArrowTransform = inp.Results.ArrowTransform;
-            ArrowScaling = inp.Results.ArrowScaling;
-            ArrowParam = inp.Results.ArrowParam;
-            P = obj.p(:, par_idx);
+            % Tight = get(gca, 'TightInset');  %Gives you the bording spacing between plot box and any axis labels
+            % %[Left Bottom Right Top] spacing
+            % NewPos = [Tight(1) Tight(2) 1-Tight(1)-Tight(3) 1-Tight(2)-Tight(4)]; %New plot position [X Y W H]
+            % set(gca, 'Position', NewPos);
+        end
+
+        function plot_solution_quiv(obj, names, opts)
+            % Wrapper for mesh.plot()
+            arguments
+                obj
+                names (1,:) cell = obj.solver.model.all_names
+                opts.sol_idx (1,:) double  = 1:size(obj.p,2)
+                opts.representation = "ab"
+            end
+
+            if ~isscalar(obj)
+                obj.run_method('plot_solution');
+                return
+            end
+
+
+
+
+
+%             inp = inputParser;
+%             %inp.addOptional('var',[]);
+%             inp.addParameter('v', 0, @(x) isscalar(x) && isfinite(x));
+%             inp.addParameter('w', 0, @(x) isscalar(x) && isfinite(x));
+%             expectedTransform = {'linear','symlog'};
+%             inp.addParameter('ArrowScaling',[.1, .1]);
+%             inp.addParameter('ArrowTransform','linear', @(x) any(validatestring(x,expectedTransform)));
+%             inp.addParameter('ArrowParam', [.9, .9])
+%             inp.parse(varargin{:})
+%             v = inp.Results.v;
+%             w = inp.Results.w;
+%             ArrowTransform = inp.Results.ArrowTransform;
+%             ArrowScaling = inp.Results.ArrowScaling;
+%             ArrowParam = inp.Results.ArrowParam;
+            P = obj.p(:, opts.sol_idx);
             nreg = size(P, 2);
-            nn = length(names_selection);
-            nc = obj.mesh.ncells;
-            np = sum(obj.model.npars); % Number of parameters in each cell
+            nn = length(names);
+            nc = obj.solver.mesh.ncells;
+            np = sum(obj.solver.model.npars); % Number of parameters in each cell
             Np = size(P,1); %= nc*np;
             m = makefigure(20, 3*nn);
             if nreg>1 % Compare different vectors
@@ -232,12 +365,14 @@ classdef Solution < handle & helpers.ArraySupport
             t.XLabel.Interpreter = 'latex';
             t.YLabel.Interpreter = 'latex';
 
-            par_idx = obj.get_par_idx(names_selection);
-            titles = obj.modify_names(names_selection);
-
+            par_idx = obj.get_par_idx(names);
+            titles = obj.modify_names(names);
+            if strcmp(opts.representation, "Aphi")
+                pause
+            end
             for col = 1:nreg
                 for row = 1:nn
-                    nexttile();
+                    ax = nexttile();
                     amax = max(abs(P(par_idx(row):np:Np, 2)), [], 'omitnan') + 1e-5; % For paper, we assume nreg = 3
                     if ~v && ~w
                         var = [P(par_idx(row):np:Np, col), zeros(nc,2)];
@@ -256,7 +391,7 @@ classdef Solution < handle & helpers.ArraySupport
                     %plot(var(:,2:3))
                     %ylim([-armax(1), armax(1)])
                     hold on
-                    obj.mesh.plot('var', var, 'FixAspectRatio', false)
+                    obj.solver.mesh.plot(ax,'var', var, 'FixAspectRatio', false)
                     if col == nreg
                         if ~contains(titles{row}, 'phi')
                             %amax = max(abs(var(:,1)), [], 'omitnan') + 1e-5;
@@ -330,10 +465,73 @@ classdef Solution < handle & helpers.ArraySupport
             % set(gca, 'Position', NewPos);
         end
 
-        function DEC = decomposeSolution(obj)
-            % Decompose cross-sectional solution data using Jongbloed et al
-            % 2024b - thickness-weighed averaging
+        function ax = plot_mesh(obj, ax, opts)
+            arguments
+                obj
+                ax
+                opts.vertical = "z"
+            end
+            if strcmp(opts.vertical,'z') %dirty
+                co = 'z';
+                obj.solver.mesh.plot(ax);
+            elseif strcmp(opts.vertical,'sig')
+                co = '$\sigma$';
+                obj.solver.mesh.plot(ax, Sigma = true);
+            end 
+            xlabel('y')
+            ylabel(co, 'Interpreter', 'latex')
+            axis tight
+            set(gca(), 'XDir','reverse');
+            ax.TickLabelInterpreter = 'latex';
+            set(gca,'TickLength',[0 0]);
+            set(gca, 'XTickLabel', [])
+            set(gca, 'YTickLabel', [])
         end
+
+        function CV = cross_validate_single(obj, reg_pars_cell)
+
+            p_train = cell(size(reg_pars_cell));
+
+            if strcmp(obj.opts.cv_mode, 'random')
+                nepochs = obj.opts.cv_iter;
+            else
+                nepochs = 1;
+            end
+            niter = numel(reg_pars_cell)*nepochs;
+            E = cell([numel(reg_pars_cell), 2]);
+            CV = cell([numel(reg_pars_cell), 2]);
+            i = 0;
+            fprintf('Cross-validation percentage: %2.2f percent \n', 100*i/niter)
+            for ep = 1:nepochs % randomized iterations: Only meaningful if cv_mode == 'random'
+                train_idx = logical(obj.split_dataset());
+                test_idx = ~train_idx;
+
+                % Construct training matrix and data
+                M0 = obj.M(train_idx, :);
+                b0 = obj.b(train_idx);
+
+                M1 = obj.M(test_idx,:);
+                b1 = obj.b(test_idx);
+
+                Mp = M0'*M0;
+
+                for rp = 1:numel(reg_pars_cell)
+                    regp = reg_pars_cell{rp};
+                    p_train{rp}(:, ep) = obj.assemble_solve_single(M0, b0, Mp, regp);
+                    i = i+1;
+                    fprintf('Cross-validation percentage: %2.2f percent \n', 100*i/niter)
+                    E{rp,1}(1, ep) = mean((M1*p_train{rp}(:, ep) - b1).^2); % Generalization error
+                    E{rp,2}(1, ep) = mean((M0*p_train{rp}(:, ep) - b0).^2); % Training error
+                end
+            end
+            for rp = 1:numel(reg_pars_cell)
+                %                 %p_avg{rp} = mean(p_train{rp}, 2); % k-fold cross-validated estimate
+                CV{rp, 1} = mean(E{rp,1}); % Ensemble average
+                CV{rp, 2} = mean(E{rp,2}); % Ensemble average
+            end
+        end
+
+
     end
 
     methods(Access=protected)
@@ -353,19 +551,6 @@ classdef Solution < handle & helpers.ArraySupport
             res = obj.b - obj.get_b_pred;
             res_std = std(res);
             res_mean = mean(res);
-        end
-
-        function ax = plot_mesh(obj, varargin)
-            ax = obj.mesh.plot(varargin{:});
-            xlabel('y [m]')
-            if any(strcmp(varargin,'sig')) %dirty
-                ylabel('$\sigma$', 'Interpreter', 'latex')
-            else
-                ylabel('$z [m]$', 'Interpreter', 'latex')
-            end
-            axis tight
-            set(ax, 'XDir','reverse')
-            ax.TickLabelInterpreter = 'latex';
         end
 
         function [me, vare, mse, e] = get_residual(obj, A, x, b)
@@ -416,16 +601,16 @@ classdef Solution < handle & helpers.ArraySupport
 
             % Implementation using for loop, not very efficient
 
-            me_mesh = nan([obj.mesh.ncells,1]);
-            vare_mesh = nan([obj.mesh.ncells,1]);
-            mse_mesh = nan([obj.mesh.ncells,1]);
-            e_mesh = cell([obj.mesh.ncells,1]);
+            me_mesh = nan([obj.solver.mesh.ncells,1]);
+            vare_mesh = nan([obj.solver.mesh.ncells,1]);
+            mse_mesh = nan([obj.solver.mesh.ncells,1]);
+            e_mesh = cell([obj.solver.mesh.ncells,1]);
 
             idx = obj.eq2mesh(neq);
 
             [~, ~, ~, e] = obj.get_residual(A, x, b); % Bulk statistics
 
-            for cidx = 1:obj.mesh.ncells
+            for cidx = 1:obj.solver.mesh.ncells
                 e_mesh{cidx,1} = e(idx{cidx}, 1);
                 [me_mesh(cidx,1), vare_mesh(cidx, 1),  mse_mesh(cidx, 1)] = obj.get_mean_var_mse(e_mesh{cidx,1});
             end
@@ -459,7 +644,7 @@ classdef Solution < handle & helpers.ArraySupport
                 fi = strcat(meas_name, "m");
                 var = obj.GOF(p_idx).(fi);
                 %var(var==0) = nan;
-                obj.mesh.plot('var', var, 'FixAspectRatio', false)
+                obj.solver.mesh.plot('var', var, 'FixAspectRatio', false)
                 amax = max(abs(var), [], 'omitnan');
                 %if strmp(meas_name, m)
                 clim([-amax, amax])
@@ -469,7 +654,7 @@ classdef Solution < handle & helpers.ArraySupport
                 var = obj.GOF(p_idx).(fi){var_idx};
                 amax = max(abs(var), [], 'omitnan');
                 %var(var==0) = nan;
-                obj.mesh.plot('var', var, 'FixAspectRatio', false)
+                obj.solver.mesh.plot('var', var, 'FixAspectRatio', false)
                 clim([-amax, amax])
             end
         end
@@ -487,7 +672,7 @@ classdef Solution < handle & helpers.ArraySupport
         function par_idx = get_par_idx(obj, names_selection)
             par_idx = nan([1,numel(names_selection)]);
             for name_idx = 1:numel(names_selection)
-                par_idx(name_idx) = find(strcmp(obj.model.all_names, names_selection{name_idx}));
+                par_idx(name_idx) = find(strcmp(obj.solver.model.all_names, names_selection{name_idx}));
             end
         end
 
@@ -499,14 +684,24 @@ classdef Solution < handle & helpers.ArraySupport
                 mod_names{idx} = strrep(mod_names{idx}, 'u0', 'u_0');
                 mod_names{idx} = strrep(mod_names{idx}, 'v0', 'v_0');
                 mod_names{idx} = strrep(mod_names{idx}, 'w0', 'w_0');
-                mod_names{idx} = strrep(mod_names{idx}, 'd', '\partial ');
+
+                mod_names{idx} = strrep(mod_names{idx}, 'ds', '\partial x');
+                mod_names{idx} = strrep(mod_names{idx}, 'dn', '\partial y');
+                mod_names{idx} = strrep(mod_names{idx}, 'd\sigma', '\partial \sigma');
+
+                mod_names{idx} = strrep(mod_names{idx}, 'M0', 'M_0');
+                mod_names{idx} = strrep(mod_names{idx}, 'M2', 'M_2');
+                mod_names{idx} = strrep(mod_names{idx}, 'M4', 'M_4');
+
+                mod_names{idx} = strrep(mod_names{idx}, 'A', '-A');
+                mod_names{idx} = strrep(mod_names{idx}, '\phi', '-\phi');
+                %mod_names{idx} = strrep(mod_names{idx}, 'M4', 'M_4');
             end
         end
-        % TODO: Integrate with Solver -> ideally use only one solve
-        % function! Use solver.solve to get to the result.
 
         function training_idx = split_dataset(obj)
-            ci = vertcat(obj.cell_idx{:});
+            %ci = vertcat(obj.cell_idx{:});
+            ci =obj.cell_idx;
             training_idx = ones(size(ci));
 
             if strcmp(obj.opts.cv_mode, 'none')
@@ -524,66 +719,25 @@ classdef Solution < handle & helpers.ArraySupport
             end
         end
 
-        function CV = cross_validate_single(obj, reg_pars_cell, pguess)
 
-            p_train = cell(size(reg_pars_cell));
-
-            if strcmp(obj.opts.cv_mode, 'random')
-                nepochs = obj.opts.cv_iter;
-            else
-                nepochs = 1;
-            end
-            niter = numel(reg_pars_cell)*nepochs;
-            E = cell([numel(reg_pars_cell), 2]);
-            CV = cell([numel(reg_pars_cell), 2]);
-            i = 0;
-            fprintf('Cross-validation percentage: %2.2f percent \n', 100*i/niter)
-            for ep = 1:nepochs % randomized iterations: Only meaningful if cv_mode == 'random'
-                train_idx = logical(obj.split_dataset());
-                test_idx = ~train_idx;
-
-                % Construct training matrix and data
-                M0 = obj.M(train_idx, :);
-                b0 = obj.b(train_idx);
-
-                M1 = obj.M(test_idx,:);
-                b1 = obj.b(test_idx);
-
-                Mp = M0'*M0;
-
-                for rp = 1:numel(reg_pars_cell)
-                    regp = reg_pars_cell{rp};
-                    p_train{rp}(:, ep) = obj.assemble_solve_single(M0, b0, Mp, regp, pguess(:,rp));
-                    i = i+1;
-                    fprintf('Cross-validation percentage: %2.2f percent \n', 100*i/niter)
-                    E{rp,1}(1, ep) = mean((M1*p_train{rp}(:, ep) - b1).^2); % Generalization error
-                    E{rp,2}(1, ep) = mean((M0*p_train{rp}(:, ep) - b0).^2); % Training error
-                end
-            end
-            for rp = 1:numel(reg_pars_cell)
-                %                 %p_avg{rp} = mean(p_train{rp}, 2); % k-fold cross-validated estimate
-                CV{rp, 1} = mean(E{rp,1}); % Ensemble average
-                CV{rp, 2} = mean(E{rp,2}); % Ensemble average
-            end
-        end
 
         function [A, rhs, L] = assemble_single(obj, M, b, Mp, regp)
-            A = Mp + regp(1)*obj.regularization.Cg{1} + regp(2)*obj.regularization.Cg{2} +...
-                regp(3)*obj.regularization.Cg{3} + regp(4)*obj.regularization.Cg{4} + regp(5)*obj.regularization.Cg{5};
+            A = Mp + regp(1)*obj.solver.regularization(1).Cg+ regp(2)*obj.solver.regularization(2).Cg +...
+                regp(3)*obj.solver.regularization(3).Cg + regp(4)*obj.solver.regularization(4).Cg + regp(5)*obj.solver.regularization(5).Cg;
             obj.opts.preconditioner_opts.diagcomp = max(sum(abs(A),2)./diag(A))-2;
             L = ichol(A, obj.opts.preconditioner_opts);
-            rhs = M'*b + regp(5)*obj.regularization.C{5}'*obj.regularization.rhs;
+            rhs = M'*b + regp(5)*obj.solver.regularization(5).C'*obj.solver.regularization(5).rhs;
         end
 
-        function p = assemble_solve_single(obj, M, b, Mp, regp, pguess)
+        function p = assemble_solve_single(obj, M, b, Mp, regp)
             % Solve system of eqs
             [A, rhs, L] = assemble_single(obj, M, b, Mp, regp);
-            p = solve_single(obj, A, rhs, L, pguess); % Matrix of solutions (columns) belonging to regularization parameters regP (rows)
+            p = obj.solve_single(A, rhs, L); % Matrix of solutions (columns) belonging to regularization parameters regP (rows)
         end
 
-        function p = solve_single(obj, A, rhs, L, pguess)
+        function p = solve_single(obj, A, rhs, L)
             % Solve system of eqs
-            [p, ~, ~, ~] = pcg(A, rhs, obj.opts.pcg_tol, obj.opts.pcg_iter, L, L', pguess); % Matrix of solutions (columns) belonging to regularization parameters regP (rows)
+            [p, ~, ~, ~] = pcg(A, rhs, obj.opts.pcg_tol, obj.opts.pcg_iter, L, L'); % Matrix of solutions (columns) belonging to regularization parameters regP (rows)
         end
 
         function rhs = b2rhs(obj, M, b, regp)
@@ -782,20 +936,19 @@ classdef Solution < handle & helpers.ArraySupport
             %             lg
         end
 
-        function pars = p2pars(obj)
-            [np, ne] = size(obj.p);
-            ncells = obj.regularization.mesh.ncells;
+        function pars = p2pars(obj,p)
+            [np, nsols] = size(p);
+            ncells = obj.solver.mesh.ncells;
             npars = np/ncells;
-            pars = zeros(ncells, npars, ne); % could be done using one reshape() call, %TODO chatGPT
-            for n = 1:ne
-                pars(:,:,n) = reshape(obj.p(:,n) ,[npars, ncells])';
-            end
-            obj.pars = pars;
+            pars = reshape(obj.p, npars, ncells, nsols);
+            pars = permute(pars, [2 1 3]);
         end
 
-        function p = pars2p(obj)
-            p = reshape(obj.pars', 1, [])';
-            obj.p = p;
+        function p = pars2p(obj, pars)
+            p = nan(size(obj.p));
+            for i=1:size(pars,3)
+                p(:,i) = reshape(pars(:,:,i)', 1, [])';
+            end
         end
 
         function nullSpace = generate_null_intersection(obj, mat_cell)
@@ -834,93 +987,3 @@ end
 
 
 
-% Bin
-%                 obj.velocity_model.get_parameter_names();
-%
-%                 % Internal continuity matrix
-%                 %                 for j = 1:obj.mesh.ncells
-%                 C1 = assembleC1(obj);
-%                 %                 end
-%                 C1p = C1'*C1;
-%
-%                 % External continuity matrix
-%                 C2 = assembleC2(obj);
-%                 C2p = C2'*C2;
-%
-%                 %Coherence matrix
-%                 C3 = assembleC3(obj);
-%                 C3p = C3'*C3;
-%
-%                 %Consistency matrix
-%                 C4 = assembleC4(obj);
-%                 C4p = C4'*C4;
-%
-%                 % Kinematic boundary condition matrix
-%                 [C5, bc] = assembleC5(obj);
-%                 C5p = C5'*C5;
-%
-%
-%                 % Data matrix: All data
-%                 [Mu, Mv, Mw] = obj.velocity_model.get_model(...
-%                     dt, cur_s, dn, dz, dsig);
-%                 Mb0 = [Mu.*cur_xform(:,1), Mv.*cur_xform(:,2), Mw.*cur_xform(:,3)]; %Model matrix times unit vectors q
-%
-%                 % If cross-validation is to be applied: Split data in two
-%                 % sets. All other operations before are data-independent
-%                 % and can thus be performed only once.
-%                 Mj = cell([obj.mesh.ncells,1]); ns = zeros([obj.mesh.ncells,1]); bj = cell([obj.mesh.ncells,1]);
-%                 for j = 1:obj.mesh.ncells
-%                     Mj{j} = Mb0(j==cell_idx,:);
-%                     ns(j) = sum(j == cell_idx);
-%                     bj{j} = cur_vel(j==cell_idx);
-%                 end
-%
-%                 b = vertcat(bj{:});
-%                 M = spblkdiag(Mj{:});
-%                 pcg_opts = struct('michol','on','type','ict','droptol',1e-3,'diagcomp',0);
-%
-%                 % Generate first guess for p
-%                 rpg0 = [opts.reg_pars0{:}];
-%                 A = M'*M + rpg0(1)*C1p + rpg0(2)*C2p + rpg0(3)*C3p + rpg0(4)*C4p + rpg0(5)*C5p;
-%                 alpha = max(sum(abs(A),2)./diag(A))-2;
-%                 pcg_opts.diagcomp = max(sum(abs(A),2)./diag(A))-2;
-%                 L = ichol(A, pcg_opts);
-%                 p0 = pcg(A, M'*b + rpg0(5)*C5'*bc, 1e-9, size(A,2), L, L'); % global, iterative inversion
-%                 np = length(p0);
-%
-%                 % Compute quantities of interest for comparison
-%                 rpg1 = opts.reg_pars1;
-%                 p1 = nan(np, size(rpg1,1));
-%                 for n = 1:length(rpg1{1})
-%                     A = M'*M + rpg1{1}(n)*C1p + rpg1{2}(n)*C2p + rpg1{3}(n)*C3p + rpg1{4}(n)*C4p + rpg1{5}(n)*C5p;
-%                     alpha = max(sum(abs(A),2)./diag(A))-2;
-%                     pcg_opts.diagcomp = max(sum(abs(A),2)./diag(A))-2;
-%                     p1(:,n) = pcg(A, M'*b + rpg1{5}(n)*C5'*bc, 1e-9, size(A,2), L, L'); % global, iterative inversion
-%                 end
-
-%                assignin("base", "dat", struct('M', M, 'C1', C1, 'C2', C2, 'C3', C3, 'C4', C4, 'C5', C5, 'bc', bc, ...
-%                    'IM', IM, 'p', p, 'p0', p0, 'p1', p1, 'b', b,...
-%                   'opts', opts, 'cell_idx', cell_idx, 'Pe', Pe, 'regP', regP))
-
-%               pars{1,1} = reshape(squeeze(p(:,1,1)) ,[size(Mb0,2), obj.mesh.ncells])'; % At this stage, pars are already known.
-%                cov_pars{1,1} = 0; n_vels{1,1} = ns;
-
-
-%Continue here.
-%
-%             obj.cv_results
-%             for rp = 1:numel(obj.opts.reg_pars)
-%                 obj.cv_results(rp) = mean((b1 - p_avg).^2)
-% Residuals and goodness of fit
-
-%                     pe(1, rp, ep) = calc_res(b, M*p(:, rp, ep)); % Performance on full set
-%                     pe(2, rp, ep) = calc_res(b0, M0*p(:, rp, ep)); % Performance on training set
-%                     pe(3, rp, ep) = calc_res(b1, M1*p(:, rp, ep)); % Performance on validation set
-%                     pe(4, rp, ep) = calc_res(0, C1*p(:, rp, ep)); % Performance on continuity
-%                     pe(5, rp, ep) = calc_res(0, C2*p(:, rp, ep)); % Performance on gen. continuity
-%                     pe(6, rp, ep) = calc_res(0, C3*p(:, rp, ep)); % Performance on smoothness
-%                     pe(7, rp, ep) = calc_res(0, C4*p(:, rp, ep)); % Performance on consistency
-%                     pe(8, rp, ep) = calc_res(bc, C5*p(:, rp, ep)); % Performance on boundary conditions
-%
-%                     pe(9,rp,ep) = condest(A);
-%                     pe(10,rp,ep) = it;

@@ -104,7 +104,9 @@ classdef InternalContinuity <...
                 val(:), ...
                 npars_ne*ncells, ...
                 npars_total);
-    
+               
+            % scale to unity (in a certain sense)
+            
             obj.rhs = sparse([],[],[],npars_ne*ncells,1,0);
         end
     end

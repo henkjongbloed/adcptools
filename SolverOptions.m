@@ -15,6 +15,8 @@ classdef SolverOptions < handle
         % in case lscov
         lscov_opts = [];
 
+        extrapolate_vert = 0;
+
         % in case pcg
         preconditioner_opts (1,1) struct = struct('michol', 'on', 'type', 'ict', 'droptol', 1e-3,'diagcomp', 1e-3);
         set_diagcomp (1,1) double = 1;

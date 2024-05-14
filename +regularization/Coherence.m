@@ -42,9 +42,14 @@ classdef Coherence < regularization.Regularization &...
             row = repmat(fpars(:,1:end-1), [1 1 4]);
 
             % value is 1/number_neighbors. This is the real number of
-            % neighbors, excluding the face cell
-            val = -ones(size(row))./num_neighbors;
-
+            % neighbors, excluding the fake cell
+            %val = ones(size(row))./num_neighbors;
+            
+            relw = [10, 1, 10, 1];
+            val = bsxfun(@times, ones(size(row)), permute(relw, [1, 3, 2]));
+            %sval = sum(val, 3); 
+            %val = val./repmat(sval, [1,1,size(val, 3)]);
+            
             % we now remove the coefficients when the index refers to the
             % fake cell
             fbad = col > Np*ncells; % bad coefficients
@@ -53,9 +58,14 @@ classdef Coherence < regularization.Regularization &...
             val = val(~fbad);
 
             % construct the matrix
-            C = speye(Np*ncells) +... % identity matrix
-                sparse(row, col, val, ncells*Np, ncells*Np);
+            Cd = speye(Np*ncells); % identity matrix
+                            
+            Co0 = sparse(row, col, val, ncells*Np, ncells*Np);
+            Co = spdiags(1./(Co0*ones([Np*ncells,1])), 0, ncells*Np, ncells*Np)*Co0;
 
+            %test = ;
+            plot(Co*ones([Np*ncells,1]))
+            C = Cd - Co;
             W = obj.assemble_weights();
 
             obj.C = W*C;
@@ -86,6 +96,9 @@ classdef Coherence < regularization.Regularization &...
 
             w(f_horz_der) = w(f_horz_der)*horscale;
             W = spdiags(w, 0, npars, npars);
+        end
+
+        function val = assemble_subweights(obj)
         end
     end
     methods(Access = protected)

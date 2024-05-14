@@ -101,6 +101,8 @@ classdef SigmaZetaMesh < Mesh & helpers.ArraySupport & matlab.mixin.Copyable
     %
     %   SigmaZetaMesh methods:
     %   index - returns mesh cell indices for given positions
+    %   index_vert_extr - returns mesh cell indices, extrapolating the
+    %   indices vertically in sigma space using nearest neighbors
     %   plot - plot the mesh optionally coloring with a given variable
     %   plot3 - 3D plot the mesh optionally coloring with a given variable
     %   plot_neighbors - plot the mesh connectivity and numbering
@@ -814,6 +816,44 @@ classdef SigmaZetaMesh < Mesh & helpers.ArraySupport & matlab.mixin.Copyable
             end
         end
 
+        function cell_idx_extrapolated = index_extrapolate(obj, cell_idx, n, sig)
+            % Indices of mesh cells for given positions, extending and
+            % usually called after calling obj.index()
+            %
+            %   cell_idx_extrapolated = index_extrapolate(obj, cell_idx, n, sig) 
+            %   transforms nan values of index() integer cell indices
+            %   corresponding to the closest cell having the same
+            %   n-coordinate
+            %
+            %  see also: index, SigmaZetaMesh
+            cell_idx_extrapolated = cell_idx;
+
+            % Query points too close to bottom or surface.
+            if sum(isnan(cell_idx)) == 0
+                disp("Query points all inside mesh domain.")
+            else
+                extr = isnan(cell_idx);
+                bot = sig < .5;
+                sur = sig > .5;
+                extrb = extr & bot;
+                extrs = extr & sur;
+
+                % Following are of length ncol
+                sur_idx = intersect(find((obj.domains >= 2)), find((obj.domains <= 4)));
+                bot_idx = find((obj.domains >= 6));
+
+                % Following could perhaps be sped up (only extr cells
+                % should be evaluated)
+                center_idx = obj.index(n, .5*ones(size(n))); % Could be sped up
+                fgood = isfinite(center_idx);
+                cols = obj.col_to_cell(center_idx(fgood)); % Columns
+
+                cell_idx_extrapolated(extrb(fgood)) = bot_idx(cols(extrb(fgood)));
+                cell_idx_extrapolated(extrs(fgood)) = sur_idx(cols(extrs(fgood)));
+            end
+
+        end
+
         function varargout = plot(obj,varargin)
             % Plot the mesh optionally colored with a variable
             %
@@ -866,7 +906,7 @@ classdef SigmaZetaMesh < Mesh & helpers.ArraySupport & matlab.mixin.Copyable
                     ax = carg;
                     get_gca = false;
                 elseif (isa(carg,'char') || isa(carg,'string')) &&...
-             		    ismember(carg,{'AspectRatio',...
+                        ismember(carg,{'AspectRatio',...
                         'FixAspectRatio', 'Sigma'})
                     varargin(ca)=[]; % skip next argument
                     if ca + 1 > numel(varargin)
