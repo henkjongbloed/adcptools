@@ -78,7 +78,8 @@ classdef SolverOptions < handle
         min_reg_pars (1,5) double = [0, 0, 0, 0, 0]; % Fixed
 
         reg_pars_sens (1,5) cell = {nan, nan, nan, nan, nan};
-
+        lat_weight_factor = 1; % Scalar denoting the relative importance of lateral coherence vs vertical coherence (see regularization.Coherence.m)
+        % Default = 1
         % TO INCLUDE: SENSITIVITY TO ADDITIVE NOISE options.
     end
 

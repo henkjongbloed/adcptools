@@ -17,7 +17,7 @@ classdef Coherence < regularization.Regularization &...
             nb = obj.neighbors'; 
 
             % number of neighbors for each cell
-            num_neighbors = sum(isfinite(nb),1);
+%             num_neighbors = sum(isfinite(nb),1);
 
             % if there is no neighbor, make a face cell (at ncells+1) be
             % the neighbor, we'll remove these later, but needed to
@@ -45,7 +45,7 @@ classdef Coherence < regularization.Regularization &...
             % neighbors, excluding the fake cell
             %val = ones(size(row))./num_neighbors;
             
-            relw = [10, 1, 10, 1];
+            relw = [obj.options.lat_weight_factor, 1, obj.options.lat_weight_factor, 1];
             val = bsxfun(@times, ones(size(row)), permute(relw, [1, 3, 2]));
             %sval = sum(val, 3); 
             %val = val./repmat(sval, [1,1,size(val, 3)]);
