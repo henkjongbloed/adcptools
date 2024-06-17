@@ -1,16 +1,17 @@
 function cmap = cmaps(q)
 % Returns colormap based on quantity to plot
+n=100;
 switch q
     case "velmap"
-        cmap = brewermap(20, 'RdBu');
+        cmap = brewermap(n, 'RdBu');
     case "Amap"
-        cmap = brewermap(20, 'Blues');
+        cmap = brewermap(n, 'Blues');
     case "phimap"
-        cmap = [brewermap(20, 'RdBu') ;flipud(brewermap(20, 'RdBu'))];
+        cmap = [brewermap(n, 'RdBu') ;flipud(brewermap(n, 'RdBu'))];
     case "salmap"
-        cmap = brewermap(15, 'YlOrBr');
+        cmap = brewermap(n, 'YlOrBr');
     otherwise
-        cmap = brewermap(20, 'RdBu');
+        cmap = brewermap(n, 'RdBu');
 end
 
 end

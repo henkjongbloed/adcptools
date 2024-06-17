@@ -214,7 +214,7 @@ classdef Solution < handle & helpers.ArraySupport
 
             nn = length(plot_names);
             np = sum(obj.solver.model.npars); % Number of parameters in each cell
-            m = makefigure(18, 3*nn);
+            m = makefigure(9, 3*nn);
             
             if numel(opts.sol_idx)>1 % Compare different vectors
                 t = tiledlayout(m, nn, numel(opts.sol_idx), TileSpacing = "tight", Padding = "tight", TileIndexing = "columnmajor");
@@ -243,7 +243,7 @@ classdef Solution < handle & helpers.ArraySupport
             for col = 1:numel(opts.sol_idx)
                 for row = 1:nn
                     ax = nexttile(t);
-                    amax = max(abs(P(par_idx(row):np:end, numel(opts.sol_idx)-1)), [], 'omitnan') + 1e-5; % For paper, we assume nreg = 3
+                    amax = max(abs(P(par_idx(row):np:end, numel(opts.sol_idx))), [], 'omitnan') + 1e-5; % For paper, we assume nreg = 3
                     var = P(par_idx(row):np:end, col);
                     hold on
                     [hbed, hwater, hmesh] = obj.solver.mesh.plot(ax,'var', var, 'FixAspectRatio', false);
@@ -263,7 +263,7 @@ classdef Solution < handle & helpers.ArraySupport
                     
                     % Titles
                     lam = {'\mathbf{\lambda}_N', '\mathbf{\lambda}_L', '\mathbf{\lambda}_H'};
-                    if row == 1
+                    if 0
                         title(['$', titles{row}, ', \hspace{.1cm}  \lambda = ', lam{col}, '$'], 'interpreter', 'latex', 'FontSize', 12);
                     else
                         title(['$', titles{row}, '$'], 'interpreter', 'latex', 'FontSize', 12);
