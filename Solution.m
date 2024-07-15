@@ -103,9 +103,6 @@ classdef Solution < handle & helpers.ArraySupport
                     "Enter extrapolate = true to linearly " + ...
                     "extrapolate the solution.")
             end
-
-
-
             n_center = reshape(...
                 obj.solver.mesh.n_middle(obj.solver.mesh.col_to_cell), [], 1);
             dS = X.dX*ones(size(ev_cidx));
@@ -843,20 +840,6 @@ classdef Solution < handle & helpers.ArraySupport
                 end
             end
         end
-        %err(rp, ep) =
-        %rel_err(rp, ep) = err(rp, ep)./sqrt(mean(P(:,ep).^2));
-
-        % Investigate sensitivity wrt all parameters small quantities
-        %                         for ip = 1:np
-        %                             perr(ip,rp, ep) = sqrt(sum((p(ip:np:end,ep)-phat(ip:np:end, rp, ep) ).^2));
-        %                             rel_perr(ip,rp, ep) = perr(ip,rp, ep)./sqrt(sum(p(ip:np:end,ep).^2));
-        %                         end
-
-        %                     avg_err(rp, nn) = mean(err(rp, :));
-        %                     avg_perr(:, rp, nn) = mean(squeeze(perr(:, rp, :)),2);
-        %                     avg_rel_err(rp, nn) = mean(rel_err(rp, :));
-        %                     avg_rel_perr(:, rp, nn) = mean(squeeze(rel_perr(:, rp, :)),2);
-
 
 
         function reg_pars_cell = reg_pars2cell(obj)
@@ -964,26 +947,3 @@ classdef Solution < handle & helpers.ArraySupport
         end
     end
 end
-
-
-
-
-
-
-
-
-%         function SE = local_sensitivity(obj)
-%         end
-%
-%         function SE = sensitivity_analysis(obj)
-%
-%         end
-
-%         function phi_cmap = get.phi_cmap(obj)
-%         phi_cmap = [obj.vel_cmap;  flipud(obj.vel_cmap)];
-%         end
-
-%     end
-
-
-
