@@ -132,7 +132,7 @@ classdef Solution < handle & helpers.ArraySupport
             end
         end
 
-        function [H, Wl, Zb] = get_H(obj)
+        function [H, Wl, Zb] = get_depth(obj)
             [xvec, yvec] = obj.solver.mesh.xs.sn2xy(zeros(size(obj.decomp.X.y)), obj.decomp.X.y); % convert to x,y
             zvec = obj.bathy.get_bed_elev(xvec, yvec);  % get (time-indep) bathy
 

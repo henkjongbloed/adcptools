@@ -64,7 +64,7 @@ classdef Coherence < regularization.Regularization &...
             Co = spdiags(1./(Co0*ones([Np*ncells,1])), 0, ncells*Np, ncells*Np)*Co0;
 
             %test = ;
-            plot(Co*ones([Np*ncells,1]))
+            %plot(Co*ones([Np*ncells,1]))
             C = Cd - Co;
             W = obj.assemble_weights();
 
