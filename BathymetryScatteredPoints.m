@@ -232,6 +232,57 @@ classdef BathymetryScatteredPoints < Bathymetry
                 varargout{2} = ht;
             end
         end % function
+        function varargout = plot_dots(obj)
+            % plots the bathymetry
+            %
+            %   obj.plot() creates a 3D plot of the interpolated bathymetry surface.
+            %   The surface is a triangulated surface between the input location. The
+            %   surface does usually not cross the input points due to the smoothing in
+            %   the interpolator. The surface extends in the alphaShape of the input
+            %   points, with an alphaShape radius of 6 times the radius giving one
+            %   output region.
+            %
+            %   It also plots the input points as black dots.
+            %
+            %   [hp, ht]=obj.plot returns a handle to the plotted input points, and to
+            %   the triangulated surface representing the bathymetry.
+            %
+            %   obj.plot can also plot an array of objects which will include several
+            %   bathymetries in the plot. This feature is handled by the Bathymetry
+            %   superclass.
+            %
+            %   see also: BathymetryScatteredPoints, plot_residuals, Bathymetry
+            if ~isscalar(obj)
+                plot_dots@Bathymetry(obj);
+                return
+            end
+            hold_stat=get(gca,'NextPlot');
+            
+            hp = scatter(obj.known(1,:),obj.known(2,:),[],obj.known(3,:));
+            hp0=scatter(obj.known(1,:),obj.known(2,:),.1, 'k');
+            hold on
+            pbaspect([5 5 1])
+            da = daspect;
+            hrat = max(da(1:2))/da(3);
+            daspect([hrat hrat 1])
+
+            %as=alphaShape(obj.known(1,:)',obj.known(2,:)',1);
+            %as.Alpha=as.criticalAlpha('one-region')*6;
+            %tri = alphaTriangulation(as);
+            %z_interp=obj.get_bed_elev(obj.known(1,:),obj.known(2,:));
+            %ht=trimesh(tri,obj.known(1,:), obj.known(2,:), z_interp ,...
+                %'FaceColor','interp','EdgeColor','none');
+            %ht=trimesh(tri, obj.known(1,:), obj.known(2,:), z_interp ,...
+                %'FaceColor','interp','EdgeColor','none');
+            set(gca,'NextPlot',hold_stat)
+            set(gca,'Clipping','off')
+            if nargout > 0
+                varargout{1} = hp;
+            end
+            if nargout > 1
+                varargout{2} = ht;
+            end
+        end % function
     end % methods
     methods (Access=protected)
         function set_interpolator_known(obj)

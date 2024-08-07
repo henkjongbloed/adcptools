@@ -13,19 +13,11 @@ classdef Solution < handle & helpers.ArraySupport
 
         cell_idx (:,1) double
 
-%         mesh (1,1) Mesh = SigmaZetaMesh
-% 
-%         regularization (1,:) regularization.Regularization
-% 
-%         model (1,1) DataModel = TaylorScalarModel
-
         solver (1,1)
 
         opts (1,1) SolverOptions
 
-       % ns (:,:) double
-
-        GOF % Goodness of fit results
+        name
 
     end
 
@@ -37,9 +29,6 @@ classdef Solution < handle & helpers.ArraySupport
     %   ensemble_filter - defines repeat transects to be processed
     %   data_model - defines the velocity model to fit
 
-    properties
-        decomp (1,1) Decomposition
-    end
     properties(Dependent)
         pars %p arranged in matrix of size Nc x np.
         ns   %number of measurements per cell.
@@ -79,7 +68,7 @@ classdef Solution < handle & helpers.ArraySupport
             % Used for interpolation or plotting
             arguments
                 obj
-                sol_idx (1,1) double  = 1
+                sol_idx (:,:) double  = 1
                 X.T (:,1) double = 0
                 X.dX (1,1) double = 0 % scalar used to investigate along-channel gradients.
                 X.N (:,1) double = 0
@@ -115,20 +104,25 @@ classdef Solution < handle & helpers.ArraySupport
 
             pars_cell = obj.pars(ev_cidx, :, sol_idx);
 
+         
+            ip = repmat(1:nx, [np, 1]); ip = ip(:);
+            jp = 1:nx*np;
+            res = nan([nx, obj.solver.model.ncomponents, numel(sol_idx)]);
+            v = cell([obj.solver.model.ncomponents,1]); 
+            P = cell([obj.solver.model.ncomponents,numel(sol_idx)]); 
+            Mp = cell([obj.solver.model.ncomponents,1]);
+            pidx = [0, cumsum(obj.solver.model.npars)];
+
             %The following could be coded more elegantly but does not
             %affect computation times significantly (probably
             %matmult/pagemtimes/permute)
-            pidx = [0, cumsum(obj.solver.model.npars)];
-            
-            ip = repmat(1:nx, [np, 1]); ip = ip(:);
-            jp = 1:nx*np;
-            res = nan([nx, obj.solver.model.ncomponents]);
-            v = cell([3,1]); P = cell([3,1]); Mp = cell([3,1]); 
             for dim = 1:obj.solver.model.ncomponents
                 v{dim} = M0(:,:,dim)'; v{dim} = v{dim}(:);
-                P{dim} = pars_cell(:,(pidx(dim)+1):pidx(dim+1))'; P{dim} = P{dim}(:);
                 Mp{dim} = sparse(ip,jp,v{dim});
-                res(:,dim) = Mp{dim}*P{dim}; % Compute u = Mx*px;
+                for ri = 1:numel(sol_idx)
+                    P{dim, ri} = squeeze(pars_cell(:,(pidx(dim)+1):pidx(dim+1), ri))'; P{dim, ri} = P{dim, ri}(:);
+                    res(:,dim, ri) = Mp{dim}*P{dim, ri}; % Compute u = Mx*px;
+                end
             end
         end
 
@@ -485,18 +479,19 @@ classdef Solution < handle & helpers.ArraySupport
             set(gca, 'YTickLabel', [])
         end
 
-        function CV = cross_validate_single(obj, reg_pars_cell)
-
-            p_train = cell(size(reg_pars_cell));
+        function CV = cross_validate_single(obj, reg_pars_mat)
+            % reg_pars_mat is a matrix of size nreg x 5, with the 5 known
+            % regularization constraints.
+            p_train = cell([size(reg_pars_mat, 1), 1]);
 
             if strcmp(obj.opts.cv_mode, 'random')
                 nepochs = obj.opts.cv_iter;
             else
                 nepochs = 1;
             end
-            niter = numel(reg_pars_cell)*nepochs;
-            E = cell([numel(reg_pars_cell), 2]);
-            CV = cell([numel(reg_pars_cell), 2]);
+            niter = size(reg_pars_mat, 1)*nepochs;
+            E = cell([size(reg_pars_mat, 1), 2]);
+            CV = cell([size(reg_pars_mat, 1), 2]);
             i = 0;
             fprintf('Cross-validation percentage: %2.2f percent \n', 100*i/niter)
             for ep = 1:nepochs % randomized iterations: Only meaningful if cv_mode == 'random'
@@ -512,16 +507,15 @@ classdef Solution < handle & helpers.ArraySupport
 
                 Mp = M0'*M0;
 
-                for rp = 1:numel(reg_pars_cell)
-                    regp = reg_pars_cell{rp};
-                    p_train{rp}(:, ep) = obj.assemble_solve_single(M0, b0, Mp, regp);
+                for rp = 1:size(reg_pars_mat, 1)
+                    p_train{rp}(:, ep) = obj.assemble_solve_single(M0, b0, Mp, reg_pars_mat(rp,:));
                     i = i+1;
                     fprintf('Cross-validation percentage: %2.2f percent \n', 100*i/niter)
                     E{rp,1}(1, ep) = mean((M1*p_train{rp}(:, ep) - b1).^2); % Generalization error
                     E{rp,2}(1, ep) = mean((M0*p_train{rp}(:, ep) - b0).^2); % Training error
                 end
             end
-            for rp = 1:numel(reg_pars_cell)
+            for rp = 1:size(reg_pars_mat, 1)
                 %                 %p_avg{rp} = mean(p_train{rp}, 2); % k-fold cross-validated estimate
                 CV{rp, 1} = mean(E{rp,1}); % Ensemble average
                 CV{rp, 2} = mean(E{rp,2}); % Ensemble average

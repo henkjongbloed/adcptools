@@ -10,6 +10,8 @@ switch q
         cmap = [brewermap(n, 'RdBu') ;flipud(brewermap(n, 'RdBu'))];
     case "salmap"
         cmap = brewermap(n, 'YlOrBr');
+    case "fluxmap"
+        cmap = brewermap(n, 'PuBuGn');
     otherwise
         cmap = brewermap(n, 'RdBu');
 end
