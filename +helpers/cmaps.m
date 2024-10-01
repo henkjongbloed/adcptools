@@ -11,7 +11,7 @@ switch q
     case "salmap"
         cmap = brewermap(n, 'YlOrBr');
     case "fluxmap"
-        cmap = brewermap(n, 'PuBuGn');
+        cmap = brewermap(n, 'PiYG');
     otherwise
         cmap = brewermap(n, 'RdBu');
 end

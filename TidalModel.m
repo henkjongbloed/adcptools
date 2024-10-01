@@ -94,7 +94,7 @@ classdef TidalModel < DataModel
                 end
             end
         end
-        function M = get_model(obj, d_time, ~, ~, ~, ~)
+        function M = get_model(obj, time, ~, ~, ~, ~)
             % This model fits the following parameters to the velocity
             % within each cell:
             % u = u_0 + sum_n (a_n cos(2pi/T_n * t) + b_n sin(2pi/T_n * t))
@@ -106,21 +106,24 @@ classdef TidalModel < DataModel
 
             npars = obj.get_npars_tid;
             ncomp = obj.ncomponents;
-            assert(isdatetime(d_time), 'Enter time vector in datetime format.')
+            assert(isdatetime(time), 'Enter time vector in datetime format.')
             % As datenum is in days, convert to seconds
 %             d_t = convertTo(d_time,"datenum")*24*3600; %seconds
-            d_t = seconds(d_time - d_time(1));
+            % Edit 12-8-24 : converted back to datenum.
+            secday = 3600*24;
+            tn = datenum(time)*secday;
+%             tn = seconds(time - time(1));
             max_pars = max(npars);
-            M = nan(numel(d_time), max_pars, ncomp);
+            M = nan(numel(time), max_pars, ncomp);
             M(:,1,:) = 1; %residual
             for c_comp = 1:ncomp
                 n_const = sum(isfinite(obj.periods(c_comp,:)) &...
                     obj.periods(c_comp,:)~=0);
                 for c_const = 1:n_const
                     M(:,2*c_const, c_comp) = cos(...
-                        2*pi/obj.periods(c_comp,c_const)*d_t);
+                        2*pi/obj.periods(c_comp,c_const)*tn);
                     M(:,2*c_const + 1, c_comp) = sin(...
-                        2*pi/obj.periods(c_comp,c_const)*d_t);
+                        2*pi/obj.periods(c_comp,c_const)*tn);
                 end
             end
         end

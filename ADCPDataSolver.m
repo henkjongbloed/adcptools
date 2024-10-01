@@ -21,7 +21,7 @@ classdef ADCPDataSolver < Solver
             vdat = [];
             xform = [];
             time = [obj.adcp.time];
-            wl = [obj.adcp.water_level];
+            wl = [obj.adcp.water_level_object.get_water_level(time)];
 
             % get selection of data of current repeat transect and
             % replicate singleton dimensions to get uniform dimensions
