@@ -928,6 +928,7 @@ classdef Solution < handle & helpers.ArraySupport
             end
         end
 
+        
         function nullSpace = generate_null_intersection(obj, mat_cell)
             % Very slow function that takes cell array of (sparse) matrices and computes
             % intersection of their nullspaces, with basis vectors placed in columns of nullSpace
