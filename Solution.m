@@ -205,7 +205,7 @@ classdef Solution < handle & helpers.ArraySupport
 
             nn = length(plot_names);
             np = sum(obj.solver.model.npars); % Number of parameters in each cell
-            m = makefigure(9, 3*nn);
+            m = figure;%makefigure(9, 3*nn);
             
             if numel(opts.sol_idx)>1 % Compare different vectors
                 t = tiledlayout(m, nn, numel(opts.sol_idx), TileSpacing = "tight", Padding = "tight", TileIndexing = "columnmajor");
