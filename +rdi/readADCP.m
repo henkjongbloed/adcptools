@@ -1185,6 +1185,9 @@ if ~any(hasdata)
     return
 end
 datgga=msg.parse([ggastr{hasdata}]);
+if ~isfield(datgga, msg.name)
+    return
+end
 datgga.(msg.name) = expand_nmea(hasdata,datgga.(msg.name));
 dataout.(msg.name) = datgga.(msg.name);
 

@@ -1,4 +1,4 @@
-clearvars
+function compile_loess()
 
 if ispc
     mex('-I C:\dev\eigen-eigen-5a0156e40feb',...        % Eigen headers
@@ -11,5 +11,11 @@ if ispc
         '-lmwbuiltinsutil',...
         'loess.cpp')
 elseif isunix
-    mex('-lmwservices','-lmwbuiltinsutil','loess.cpp') % Make sure all libraries are installed
+    if exist('/usr/bin/gcc-10','file')
+        mex -v GCC='/usr/bin/gcc-10' CXXFLAGS='$CXXFLAGS -Wall -std=c++17' -DCGAL_EIGEN3_ENABLED -DMATLAB_MEXCMD_RELEASE=R2017b -I/usr/include/eigen3/  loess.cpp
+    else
+        mex -v CXXFLAGS='$CXXFLAGS -Wall -std=c++17' -DCGAL_EIGEN3_ENABLED -DMATLAB_MEXCMD_RELEASE=R2017b -I/usr/include/eigen3/  loess.cpp
+    end
+end
+
 end
