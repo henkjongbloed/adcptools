@@ -3,17 +3,17 @@ function cmap = cmaps(q)
 n=100;
 switch q
     case "velmap"
-        cmap = brewermap(n, 'RdBu');
+        cmap = helpers.brewermap(n, 'RdBu');
     case "Amap"
-        cmap = brewermap(n, 'Blues');
+        cmap = helpers.brewermap(n, 'Blues');
     case "phimap"
-        cmap = [brewermap(n, 'RdBu') ;flipud(brewermap(n, 'RdBu'))];
+        cmap = [helpers.brewermap(n, 'RdBu') ;flipud(helpers.brewermap(n, 'RdBu'))];
     case "salmap"
-        cmap = brewermap(n, 'YlOrBr');
+        cmap = helpers.brewermap(n, 'YlOrBr');
     case "fluxmap"
-        cmap = brewermap(n, 'PiYG');
+        cmap = helpers.brewermap(n, 'PiYG');
     otherwise
-        cmap = brewermap(n, 'RdBu');
+        cmap = helpers.brewermap(n, 'RdBu');
 end
 
 end

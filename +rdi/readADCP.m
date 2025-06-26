@@ -146,7 +146,7 @@ for cntens = 1:nens
         fpos = EnsStart{cntens} + DataOffset{cntens}(Ndatablock);
         dataout = readFL(fileid(cntens), fpos, cntens, dataout);
     end
-    disp(cntens)
+    %disp(cntens)
     waitbar(cntens/nens,f,'Reading data...');
 end
 close(f)
