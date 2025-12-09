@@ -110,7 +110,6 @@ classdef ADCP < handle &...
         % see also: ADCP
         heading_provider(:,1) HeadingProvider = rdi.HeadingInternal
 
-
         % ADCP/instrument_matrix_provider
         %
         %   Specifies the sources for the transformation matrix as a
