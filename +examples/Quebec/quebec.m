@@ -7,7 +7,7 @@ RF = 'C:\Users\jongb013\Documents\PHD\2-Programming\'; %RootFolder
 
 %% Quick documentation walkthrough - comment out
 
-open_adcptools_documentation()
+%open_adcptools_documentation()
 
 %% Loading in the data
 
